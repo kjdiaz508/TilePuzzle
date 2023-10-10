@@ -1,0 +1,223 @@
+import random
+import sys
+import pygame as pg
+import tkinter as tk
+from tkinter import filedialog
+
+
+class SlidePuzzle:
+    def __init__(self, gs: int, ts: int, ms: int, picture=None):
+        """
+        Creates a slide puzzle with the given parameters.
+
+        :param gs: the size of the grid, it will always be a square
+        :param ts: the side measure of each tile,
+            they will always be square
+        :param ms: the size of the margin between the tiles
+        :param picture: the picture to make the tiles out of.
+            If no picture is given the tiles will be green squares
+        """
+        self.gs = gs
+        self.ts = ts
+        self.ms = ms
+        self.totalsize = ((ts + ms) * gs + ms, (ts + ms) * gs + ms)
+
+        # There needs to be one less tile than available spots.
+        self.tilenum = gs * gs - 1
+
+        # Stores coordinates relative to the grid.
+        self.grid_coords = [
+            (x, y) for y in range(gs) for x in range(gs)
+        ]
+
+        # Relate grid coordinates to actual window positions.
+        self.tilepos = {
+            (x, y): (x * (ts + ms) + ms, y * (ts + ms) + ms)
+            for y in range(gs) for x in range(gs)
+        }
+
+        self.oldtile = None
+        self.picture = picture
+        self.images = []
+        self.font = pg.font.Font(None, 60)
+        self.generate_tiles()
+
+    def generate_tiles(self):
+        self.images = []
+        if self.picture is not None:
+            self.picture = pg.transform.scale(self.picture, self.totalsize)
+        else:
+            self.picture = pg.Surface(self.totalsize)
+            self.picture.fill((100, 200, 100))
+        for i in range(self.tilenum):
+            subsurf = self.picture.subsurface(
+                self.tilepos[self.grid_coords[i]], (self.ts, self.ts))
+            text = self.font.render(str(i + 1), True, (0, 0, 0),
+                                    (200, 200, 200))
+            subsurf.blit(text, (0, 0))
+            self.images.append(subsurf)
+
+    def draw(self, surface):
+        for i in range(self.tilenum):
+            surface.blit(self.images[i], self.tilepos[self.grid_coords[i]])
+
+    def find_adj(self):
+        # The adjacent tiles to the blank tile determine the legal moves
+        x, y = self.grid_coords[-1]
+        adj = []
+        if y - 1 >= 0:
+            adj.append((x, y - 1))
+        if y + 1 < self.gs:
+            adj.append((x, y + 1))
+        if x - 1 >= 0:
+            adj.append((x - 1, y))
+        if x + 1 < self.gs:
+            adj.append((x + 1, y))
+        return adj
+
+    def switch(self, tile):
+        i = self.grid_coords.index(tile)
+        # The last tile in grid_coords will always be the blank tile
+        # switch it with the clicked tile if the move is valid
+        # storing the old tile is important for randomizing scramble
+        if tile in self.find_adj():
+            self.grid_coords[-1], self.grid_coords[i], self.oldtile = \
+                self.grid_coords[i], self.grid_coords[-1], self.grid_coords[i]
+
+    def update(self):
+        x, y = pg.mouse.get_pos()
+        m_x = x % (self.ts + self.ms)
+        m_y = y % (self.ts + self.ms)
+        # ignore clicks on the margins by checking with the remainder
+        if m_x > self.ms and m_y > self.ms:
+            gx = x // (self.ts + self.ms)
+            gy = y // (self.ts + self.ms)
+            self.switch((gx, gy))
+
+    def scramble(self, steps=50):
+        # To ensure a solvable puzzle scramble it using legal moves.
+        for i in range(steps):
+            choices = [j for j in self.find_adj() if j != self.oldtile]
+            r = random.choice(choices)
+            self.switch(r)
+
+
+class Button:
+    def __init__(self, center, fontsize: int, label="button",
+                 basecolor=(200, 200, 200)):
+        self.label = label
+        self.bc = basecolor
+
+        self.font = pg.font.Font(None, fontsize)
+        self.text = self.font.render(self.label, True, (0, 0, 0))
+        self.text_size = self.text.get_rect().size
+
+        self.image = pg.Surface(
+            (self.text_size[0] + 10, self.text_size[1] + 10))
+        self.image.fill(self.bc)
+        self.button_rect = self.image.get_rect(center=center)
+
+        self.image.blit(
+            self.text,
+            self.text.get_rect(center=(self.button_rect.width // 2,
+                                       self.button_rect.height // 2)))
+
+    def draw(self, surface):
+        surface.blit(self.image, self.button_rect)
+
+    def clicked(self, event):
+        if event.type == pg.MOUSEBUTTONDOWN and pg.mouse.get_pressed(3)[0]:
+            return self.button_rect.collidepoint(pg.mouse.get_pos())
+
+
+class Game:
+    def __init__(self):
+        """
+        Class dealing with game states.
+        """
+        self.state = "intro"
+
+    def intro(self):
+        board.fill(BG_COLOR)
+        start_btn.draw(board)
+        img_btn.draw(board)
+        screen.blit(board, (0, 0))
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                pg.quit()
+                sys.exit()
+            elif event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
+                pg.quit()
+                sys.exit()
+            elif start_btn.clicked(event):
+                slide_puzzle.scramble()
+                self.state = "main_game"
+            elif img_btn.clicked(event):
+                img_path = filedialog.askopenfilename(
+                    title='select an image',
+                    filetypes=VALID_FILETYPES)
+                if img_path != '':
+                    slide_puzzle.picture = pg.image.load(img_path)
+                    slide_puzzle.generate_tiles()
+
+        pg.display.flip()
+
+    def main_game(self):
+        board.fill(BG_COLOR)
+        slide_puzzle.draw(board)
+        screen.blit(board, (0, 0))
+        for event in pg.event.get():
+            if event.type == pg.QUIT:
+                pg.quit()
+                sys.exit()
+            elif event.type == pg.KEYDOWN and event.key == pg.K_ESCAPE:
+                pg.quit()
+                sys.exit()
+            elif (event.type == pg.MOUSEBUTTONDOWN and
+                  pg.mouse.get_pressed(3)[0]):
+                slide_puzzle.update()
+        pg.display.flip()
+
+    def state_manager(self):
+        if self.state == "intro":
+            self.intro()
+        elif self.state == "main_game":
+            self.main_game()
+        else:
+            print('invalid state')
+
+
+BG_COLOR = (216, 66, 66)
+VALID_FILETYPES = (
+    ('Images', '*.png'),
+    ('Images', '*.jpg'),
+    ('Images', '*.jpeg')
+)
+GRID_SIZE, TILE_SIZE, MARGIN_SIZE = 4, 150, 3
+
+SCREEN_SIZE = ((TILE_SIZE + MARGIN_SIZE) * GRID_SIZE + MARGIN_SIZE,
+               (TILE_SIZE + MARGIN_SIZE) * GRID_SIZE + MARGIN_SIZE)
+
+# General Pygame setup.
+pg.init()
+screen = pg.display.set_mode(SCREEN_SIZE)
+pg.display.set_caption("epic puzzle game")
+clock = pg.time.Clock()
+
+# Game setup.
+board = pg.Surface(screen.get_size())
+board.fill(BG_COLOR)
+slide_puzzle = SlidePuzzle(GRID_SIZE, TILE_SIZE, MARGIN_SIZE)
+start_btn = Button((SCREEN_SIZE[0] // 2, SCREEN_SIZE[1] // 2), 50,
+                   "start game")
+img_btn = Button((SCREEN_SIZE[0] // 2, SCREEN_SIZE[1] // 2 + 50), 40,
+                 "Choose Image")
+game = Game()
+
+# File dialogue stuff for picking a picture to use for the puzzle.
+root = tk.Tk()
+root.withdraw()
+
+while True:
+    game.state_manager()
+    clock.tick(60)
